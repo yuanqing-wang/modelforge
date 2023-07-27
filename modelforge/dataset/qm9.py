@@ -1,8 +1,14 @@
-from .dataset import Dataset
-from tqdm import tqdm
 import os
-import requests
+from typing import List
+
 import h5py
+import requests
+import torch
+from tqdm import tqdm
+
+from modelforge.utils import HAR2EV, KCALMOL2EV
+
+from .dataset import Dataset
 
 
 class QM9Dataset(Dataset):
@@ -11,35 +17,59 @@ class QM9Dataset(Dataset):
     """
 
     @property
-    def cache_path(self):
-        return os.path.join(self.cache_dir, "qm9.hdf5")
+    def url(self):
+        return "https://data.pyg.org/datasets/qm9_v3.zip"
 
-    def download(self):
-        if not os.path.exists(self.cache_path):
-            # Download the file
-            response = requests.get(self.url, stream=True)
-            response.raise_for_status()  # Raise an HTTPError if the response contains an HTTP status code
+    @property
+    def raw_file_path(self):
+        return os.path.join(self.cache_dir, "qm9_raw.zip")
 
-            file_size = int(response.headers.get("Content-Length", 0))
-            progress = tqdm(
-                response.iter_content(1024),
-                f"Downloading {self.url}",
-                total=file_size,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-            )
+    @property
+    def processed_file_path(self):
+        return os.path.join(self.cache_dir, "qm9_v3.pt")
 
-            # Save the file
-            with open(self.cache_path, "wb") as fp:
-                for chunk in progress.iterable:
-                    if chunk:
-                        fp.write(chunk)
-                    # update the progress bar manually
-                    progress.update(len(chunk))
+    @property
+    def raw_file_names(self) -> List[str]:
+        return ["gdb9.sdf", "gdb9.sdf.csv", "uncharacterized.txt"]
+
+    def prepare_data(self) -> None:
+        r"""
+        Transform the data from a sdf file to a pytorch pt file format.
+        """
+        conversion = conversion = torch.tensor(
+            [
+                1.0,
+                1.0,
+                HAR2EV,
+                HAR2EV,
+                HAR2EV,
+                1.0,
+                HAR2EV,
+                HAR2EV,
+                HAR2EV,
+                HAR2EV,
+                HAR2EV,
+                1.0,
+                KCALMOL2EV,
+                KCALMOL2EV,
+                KCALMOL2EV,
+                KCALMOL2EV,
+                1.0,
+                1.0,
+                1.0,
+            ]
+        )
+
+        with open(f"{self.extracted_file_path}/{self.raw_file_names[1]}", "r") as f:
+            target = f.read().split("\n")[1:-1]
+            target = [[float(x) for x in line.split(",")[1:20]] for line in target]
+            target = torch.tensor(target, dtype=torch.float)
+            target = torch.cat([target[:, 3:], target[:, :3]], dim=-1)
+            target = target * conversion.view(1, -1)
+        print(target[:10])
 
     def load(self):
-        with open(self.cache_path, "r") as fp:
+        with open(self.processed_file_path, "r") as fp:
             data = fp.read()  # This would depend on your file format
         return data
 
